@@ -43,8 +43,18 @@ class AutomaticDetectionFeatures(object):
     def gaussian(self,x, mu, sig):
         return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
     
+    def cutImage(self,gray,cut):
+        Yend = cut[3]
+        Ystart = cut[2]
+        Xend = cut[5]
+        Xstart = cut[4]
+        xS = int((np.size(gray)/len(gray))/cut[0])
+        yS = int(len(gray)/cut[1])
+        gray = gray[int(yS*Ystart):int(yS*Yend),int(xS*Xstart):int(xS*Xend)]
+        return gray,int(yS*Ystart),int(xS*Xstart)
+
     
-    def useCascade(self,cascade,image,Precise):    
+    def useCascade(self,cascade,image,Precise,*cut):    
         # detect objects in the image 
         if Precise[0] == False:
             objects = cascade.detectMultiScale(image)
@@ -53,21 +63,12 @@ class AutomaticDetectionFeatures(object):
             y = Precise[2]
             w = Precise[3]
             h = Precise[4]
-#            plt.figure()
-#            plt.imshow(image[int(y):int(y)+int(h),int(x):int(x)+int(w)])
-            objects = cascade.detectMultiScale(image[int(y):int(y)+int(h),int(x):int(x)+int(w)])
-#            print('objets avant')
-#            print(objects)
-#            print(Precise)
+            firstImg  = image[int(y):int(y)+int(h),int(x):int(x)+int(w)]
+            finaleImg,xS,yS = self.cutImage(firstImg,cut[0])
+            objects = cascade.detectMultiScale(finaleImg)
             for values in objects:
-                values[0]+=x
-                values[1]+=y
-#                plt.figure()
-#                plt.imshow(image[values[1]:values[1]+values[3],int(values[0]):int(values[0])+values[2]])
-#            print('objets apres')
-#            print(objects)
-        # print number of objects  
-#        print("Found {0} objects!".format(len(objects)))
+                values[0]+=(x+yS)
+                values[1]+=(y+xS)
         return objects
     
     def simplifyImage(self,image):
@@ -141,9 +142,9 @@ class AutomaticDetectionFeatures(object):
             position[indP,0] = points[0]+Coor[0]
             position[indP,1] = points[1]+Coor[1]
             indP+=1
-        plt.figure()
-        plt.imshow(imageTrue)
-        plt.scatter(position[:, 0], position[:, 1], c='red', s=50)
+#        plt.figure()
+#        plt.imshow(imageTrue)
+#        plt.scatter(position[:, 0], position[:, 1], c='red', s=50)
         return position
     
     def centerMass(self,image,Coor):
@@ -163,10 +164,12 @@ class AutomaticDetectionFeatures(object):
         FacePosition = self.detectFaces(image)
         for FaceCoordonnes in FacePosition:
             #Nose
-            NoseCoordonnes = self.useCascade(self.cascNose,image,FaceCoordonnes)
+            cutNose = [8,8,3,6,1,7]
+            NoseCoordonnes = self.useCascade(self.cascNose,image,FaceCoordonnes,cutNose)
             CentroidsNose = []
             #Eye
-            EyeCoordonnes  = self.useCascade(self.cascEye,image,FaceCoordonnes)
+            cutEye = [8,8,1,4,1.5,6.5]
+            EyeCoordonnes  = self.useCascade(self.cascEye,image,FaceCoordonnes,cutEye)
             CenterMassEye = []
             # Return Position of the Centroid of the nose
             for CoorN in NoseCoordonnes:
@@ -179,26 +182,88 @@ class AutomaticDetectionFeatures(object):
         else:
             return CentroidsNose,CenterMassEye
         
+    def PlotPointsImage(self,image,CentroidsNose,CenterMassEye,indF):
+        plt.figure()
+        plt.imshow(image)  
+        # modify the image to plot the result
+        for coor in CenterMassEye:
+            plt.scatter(coor[0], coor[1], c='red', s=50)
+            #image = self.makeRound(int(coor[0]),int(coor[1]), 255,image)
+            
+        for nose in CentroidsNose:
+            for coor in nose:
+                #image = self.makeRound(int(coor[0]),int(coor[1]), 255,image)
+                plt.scatter(coor[0], coor[1], c='red', s=50)
+        plt.savefig('C:/Users/PateauTech_2/Documents/Test/imageextraite'+str(indF)+'.png')
     
     def main(self):
         indF = 1
+        PositionIMG = []
         for imagePath in self.imagesPath:  
              # extraction of images
             image = cv2.imread(imagePath,0)
             # treatment of the image
             CentroidsNose,CenterMassEye = self.TreatmentImage(image)
             if type(CentroidsNose)!=bool:
-                # modify the image to plot the result
-                for coor in CenterMassEye:
-                    image = self.makeRound(int(coor[0]),int(coor[1]), 255,image)
-                    
-                for nose in CentroidsNose:
-                    for coor in nose:
-                        image = self.makeRound(int(coor[0]),int(coor[1]), 255,image)
-                # plot
-                plt.figure()
-                plt.imshow(image)  
+                #self.PlotPointsImage(image,CentroidsNose,CenterMassEye,indF)
                 indF+=1
+                listePointsEye = []
+                for i in CenterMassEye:
+                    listePointsEye.append(i)
+                listePointsNose = []
+                for i in CentroidsNose:
+                    for j in i:
+                        listePointsNose.append(j)
+                PositionIMG.append([imagePath,listePointsEye,listePointsNose])
+        return PositionIMG
+    
+    
+    
+    
+    
+#detect distance between regions of interests        
+class AutomaticLinkFeatures(object):
+    
+    def __init__(self,PositionFeatures):
+        # path to images
+        self.Path   = PositionFeatures[0]
+        # points of interests
+        self.Points = [] 
+        for typeP in PositionFeatures[1:]:
+            for coor in typeP:
+                self.Points.append(coor)
+            
+    def distanceBeweenPoints(self,Points1,Points2):
+        distance = 0
+        for i in range(len(Points1)):
+            distance+= (Points1[i]-Points2[i])**2
+        return np.sqrt(distance)
+    
+    def findDistance(self,ListePoints):
+        TableDistance = np.zeros((len(ListePoints),len(ListePoints)))
+        ind1 = 0
+        for points1 in ListePoints:
+            ind2 = 0
+            for points2 in ListePoints:
+                TableDistance[ind1,ind2] = self.distanceBeweenPoints(points1,points2)
+                ind2+=1
+            ind1+=1
+        return TableDistance
+    
+    def main(self):
+        # extraction of images
+        image         = cv2.imread(self.Path,0)
+        # treatment points
+        TableDistance = self.findDistance(self.Points)
+        # Plot
+        plt.figure()
+        plt.imshow(image)
+        for i in range(0, len(self.Points)):
+            for j in range(0,len(self.Points)):
+                plt.plot([self.Points[i][0],self.Points[j][0]], [self.Points[i][1],self.Points[j][1]], 'ro-')
+        plt.show()
+        return TableDistance
+        
             
 
 # Path to the cascades
@@ -208,7 +273,7 @@ cascPathnose  = "C:/Users/PateauTech_2/Documents/XMLFiles/cascade_nose.xml"#"C:/
 cascPatheye  = "C:/Users/PateauTech_2/Documents/XMLFiles/cascade_eye.xml"#C:/Users/PateauTech_2/Downloads/cascadeeyeFalse.xml"
 
 # Path to the pictures to analyze
-Path = glob.glob('C:/Users/PateauTech_2/Documents/Photos_Macaques_queue_de_lion/Pictures from movie/frame8*.JPG')
+Path = glob.glob('C:/Users/PateauTech_2/Documents/Photos_Macaques_queue_de_lion/Pictures from movie/*.JPG')
 
 # Parameters
 nbPointsNose = 2
@@ -216,7 +281,14 @@ reSizeImage  = 20
 
 # Activate the algorithm to get picture
 silenusDetection = AutomaticDetectionFeatures(Path,cascPathCriniere,cascPathFace,cascPatheye,cascPathnose,nbPointsNose,reSizeImage)    
-silenusDetection.main()
+PositionIMG      = silenusDetection.main()
+
+for position in PositionIMG:
+    silenusLink      = AutomaticLinkFeatures(position)
+    Distance         = silenusLink.main()
+
+
+
             
                 
             
