@@ -2,7 +2,7 @@
 """
 Created on Wed Oct 16 16:30:24 2019
 
-@author: PateauTech_2
+@author: Eleonore
 """
 
 # import libraries
